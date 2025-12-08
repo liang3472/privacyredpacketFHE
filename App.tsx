@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import ClaimModal from './components/ClaimModal';
 import { PixelCard, PixelButton, PixelBadge } from './components/ui/PixelComponents';
 import { RedPacket, UserWallet, PacketType } from './types';
-import { getPackets, connectWallet, checkUserClaimed } from './services/blockchainService';
+import { getPackets, connectWallet, checkUserClaimed, checkWalletStatus } from './services/blockchainService';
 import { Search, Gift, Clock, Coins } from 'lucide-react';
 
 declare global {
@@ -26,13 +26,50 @@ export default function App() {
   const [selectedPacket, setSelectedPacket] = useState<RedPacket | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [packetStatusMessage, setPacketStatusMessage] = useState<{ type: 'error' | 'info', message: string } | null>(null);
+  const [pendingPacketId, setPendingPacketId] = useState<string | null>(null);
 
-  // Initial load
+  // Check wallet status on page load and listen for changes
   useEffect(() => {
+    const checkWallet = async () => {
+      const walletData = await checkWalletStatus();
+      setWallet(walletData);
+    };
+
+    // Check wallet status on initial load
+    checkWallet();
     fetchPackets();
-    // Check if previously connected
-    if (window.ethereum && window.ethereum.selectedAddress) {
-        handleConnect();
+
+    // Listen for account changes
+    if (window.ethereum) {
+      const handleAccountsChanged = async (accounts: string[]) => {
+        if (accounts.length > 0) {
+          // Account changed, update wallet status
+          const walletData = await checkWalletStatus();
+          setWallet(walletData);
+        } else {
+          // Wallet disconnected
+          setWallet({ address: '', balance: 0, isConnected: false });
+        }
+      };
+
+      const handleChainChanged = async () => {
+        // Chain changed, refresh wallet status
+        const walletData = await checkWalletStatus();
+        setWallet(walletData);
+      };
+
+      // Listen for account changes
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      // Listen for chain changes
+      window.ethereum.on('chainChanged', handleChainChanged);
+
+      // Cleanup listeners on unmount
+      return () => {
+        if (window.ethereum) {
+          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
+      };
     }
   }, []);
 
@@ -77,11 +114,28 @@ export default function App() {
             document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
           }, 100);
         } else {
-          // Packet is available, open the modal
-          setTimeout(() => {
-            setSelectedPacket(packet);
-            document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
-          }, 100);
+          // Packet is available, check if wallet is connected
+          if (!wallet.isConnected) {
+            // Save packet ID for later when wallet is connected
+            setPendingPacketId(packetId);
+            // Show message to connect wallet
+            setPacketStatusMessage({
+              type: 'info',
+              message: 'Please connect your wallet to claim this red packet!'
+            });
+            setTimeout(() => setPacketStatusMessage(null), 5000);
+            // Scroll to packet list area
+            setTimeout(() => {
+              document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+          } else {
+            // Wallet is connected, open the modal
+            setTimeout(() => {
+              setSelectedPacket(packet);
+              document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+            setPendingPacketId(null); // Clear pending packet
+          }
         }
         // Clean up URL parameter
         window.history.replaceState({}, '', window.location.pathname);
@@ -95,6 +149,21 @@ export default function App() {
       }
     }
   }, [packets, wallet]);
+
+  // Handle pending packet when wallet connects
+  useEffect(() => {
+    if (wallet.isConnected && pendingPacketId && packets.length > 0) {
+      const packet = packets.find(p => p.id === pendingPacketId);
+      if (packet && packet.remainingQuantity > 0) {
+        // Wallet is now connected, open the modal
+        setTimeout(() => {
+          setSelectedPacket(packet);
+          document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+        setPendingPacketId(null); // Clear pending packet
+      }
+    }
+  }, [wallet.isConnected, pendingPacketId, packets]);
 
   const fetchPackets = async () => {
     const data = await getPackets();
@@ -312,10 +381,10 @@ export default function App() {
       </footer>
 
       {/* Modal */}
-      {selectedPacket && (
+      {selectedPacket && wallet.isConnected && wallet.address && (
         <ClaimModal 
             packet={selectedPacket} 
-            userAddress={wallet.address || '0x000'}
+            userAddress={wallet.address}
             onClose={() => setSelectedPacket(null)}
             onSuccess={() => {
                 fetchPackets(); // Refresh data

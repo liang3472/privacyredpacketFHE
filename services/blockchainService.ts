@@ -78,6 +78,40 @@ const getFhevmInstance = async () => {
 // SERVICE METHODS
 // ==========================================
 
+// Check wallet status without requesting connection
+export const checkWalletStatus = async (): Promise<UserWallet> => {
+  if (!window.ethereum) {
+    return { address: '', balance: 0, isConnected: false };
+  }
+  
+  try {
+    const provider = getProvider();
+    if (!provider) {
+      return { address: '', balance: 0, isConnected: false };
+    }
+    
+    // Use eth_accounts instead of eth_requestAccounts to check without prompting
+    const accounts = await provider.send("eth_accounts", []);
+    
+    if (accounts && accounts.length > 0) {
+      const signer = await getSigner();
+      const address = await signer.getAddress();
+      const balance = parseFloat(ethers.formatEther(await provider.getBalance(address)));
+      
+      return {
+        address,
+        balance,
+        isConnected: true
+      };
+    }
+    
+    return { address: '', balance: 0, isConnected: false };
+  } catch (e) {
+    console.error("Error checking wallet status:", e);
+    return { address: '', balance: 0, isConnected: false };
+  }
+};
+
 export const connectWallet = async (): Promise<UserWallet> => {
   if (!window.ethereum) {
     alert("Please install MetaMask!");
