@@ -6,6 +6,8 @@
 
 [中文文档 / Chinese Documentation](README.zh.md)
 
+**🌐 Live Demo:** [https://privacyredpacket-fhe.vercel.app/](https://privacyredpacket-fhe.vercel.app/)
+
 Privacy Red Packet dApp is a blockchain-based privacy-preserving red packet application that uses fully homomorphic encryption technology to ensure complete privacy of red packet passwords and amount distribution.
 
 ## Project Overview

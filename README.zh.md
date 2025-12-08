@@ -5,6 +5,8 @@
 
 [English Documentation](README.md)
 
+**🌐 在线预览：** [https://privacyredpacket-fhe.vercel.app/](https://privacyredpacket-fhe.vercel.app/)
+
 隐私红包dApp是一款基于区块链的隐私保护红包应用，利用全同态加密技术确保红包密码和金额分配的完全隐私性。
 
 ## 项目简介
