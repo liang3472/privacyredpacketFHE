@@ -52,6 +52,35 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #cc0000;
       }
+      /* Pop animation for status messages */
+      @keyframes pop {
+        0% {
+          transform: translate(-50%, -50%) scale(0);
+          opacity: 0;
+        }
+        50% {
+          transform: translate(-50%, -50%) scale(1.1);
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+      }
+      .animate-pop {
+        animation: pop 0.3s ease-out;
+      }
+      /* Fade in animation for backdrop */
+      @keyframes fadeIn {
+        0% {
+          opacity: 0;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+      .animate-\[fadeIn_0\.2s_ease-out\] {
+        animation: fadeIn 0.2s ease-out;
+      }
     </style>
   <script type="importmap">
 {

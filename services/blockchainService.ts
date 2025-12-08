@@ -272,8 +272,26 @@ export const createPacket = async (packet: Omit<RedPacket, 'id' | 'remainingAmou
     { value: amountWei }
   );
   
-  await tx.wait();
-  return tx;
+  const receipt = await tx.wait();
+  
+  // Extract packet ID from PacketCreated event
+  let packetId: string | null = null;
+  if (receipt && receipt.logs) {
+    const eventInterface = contract.interface;
+    for (const log of receipt.logs) {
+      try {
+        const parsedLog = eventInterface.parseLog(log);
+        if (parsedLog && parsedLog.name === 'PacketCreated') {
+          packetId = parsedLog.args.id.toString();
+          break;
+        }
+      } catch (e) {
+        // Not the event we're looking for, continue
+      }
+    }
+  }
+  
+  return { tx, packetId };
 };
 
 export const claimPacket = async (packetId: string, address: string, password: string): Promise<{ success: boolean; amount: number; message?: string; remainingAttempts?: number; cooldown?: number }> => {
@@ -396,6 +414,30 @@ export const claimPacket = async (packetId: string, address: string, password: s
   } catch (e: any) {
     console.error(e);
     return { success: false, amount: 0, message: e.reason || e.message || "Claim failed" };
+  }
+};
+
+export const checkUserClaimed = async (packetId: string, userAddress: string): Promise<boolean> => {
+  if (!isOnChainConfigured) {
+    return false;
+  }
+
+  if (!window.ethereum) {
+    return false;
+  }
+
+  try {
+    const provider = getProvider();
+    if (!provider) {
+      return false;
+    }
+
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    const hasClaimed = await contract.hasClaimed(packetId, userAddress);
+    return hasClaimed;
+  } catch (e) {
+    console.error("Error checking if user claimed:", e);
+    return false;
   }
 };
 

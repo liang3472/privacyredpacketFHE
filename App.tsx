@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import ClaimModal from './components/ClaimModal';
 import { PixelCard, PixelButton, PixelBadge } from './components/ui/PixelComponents';
 import { RedPacket, UserWallet, PacketType } from './types';
-import { getPackets, connectWallet } from './services/blockchainService';
+import { getPackets, connectWallet, checkUserClaimed } from './services/blockchainService';
 import { Search, Gift, Clock, Coins } from 'lucide-react';
 
 declare global {
@@ -25,6 +25,7 @@ export default function App() {
   const [packets, setPackets] = useState<RedPacket[]>([]);
   const [selectedPacket, setSelectedPacket] = useState<RedPacket | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [packetStatusMessage, setPacketStatusMessage] = useState<{ type: 'error' | 'info', message: string } | null>(null);
 
   // Initial load
   useEffect(() => {
@@ -35,9 +36,70 @@ export default function App() {
     }
   }, []);
 
+  // Handle URL parameter for packet sharing
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const packetId = urlParams.get('packetId');
+    
+    if (packetId && packets.length > 0) {
+      const packet = packets.find(p => p.id === packetId);
+      if (packet) {
+        setCurrentPage('home');
+        
+        // Check if packet is finished (all claimed)
+        if (packet.remainingQuantity === 0) {
+          // Check if current user has claimed it
+          if (wallet.isConnected && wallet.address) {
+            checkUserClaimed(packetId, wallet.address).then(hasClaimed => {
+              if (hasClaimed) {
+                setPacketStatusMessage({
+                  type: 'info',
+                  message: 'You have already claimed this red packet!'
+                });
+              } else {
+                setPacketStatusMessage({
+                  type: 'error',
+                  message: 'This red packet has been fully claimed!'
+                });
+              }
+              // Auto hide message after 5 seconds
+              setTimeout(() => setPacketStatusMessage(null), 5000);
+            });
+          } else {
+            setPacketStatusMessage({
+              type: 'error',
+              message: 'This red packet has been fully claimed!'
+            });
+            setTimeout(() => setPacketStatusMessage(null), 5000);
+          }
+          // Scroll to packet list area
+          setTimeout(() => {
+            document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        } else {
+          // Packet is available, open the modal
+          setTimeout(() => {
+            setSelectedPacket(packet);
+            document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
+        // Clean up URL parameter
+        window.history.replaceState({}, '', window.location.pathname);
+      } else {
+        // Packet not found
+        setPacketStatusMessage({
+          type: 'error',
+          message: 'Red packet not found. It may have been deleted or does not exist!'
+        });
+        setTimeout(() => setPacketStatusMessage(null), 5000);
+      }
+    }
+  }, [packets, wallet]);
+
   const fetchPackets = async () => {
     const data = await getPackets();
     setPackets(data);
+    return data;
   };
 
   const handleConnect = async () => {
@@ -45,9 +107,12 @@ export default function App() {
     setWallet(walletData);
   };
 
-  const filteredPackets = packets.filter(p => 
-      (p.message.toLowerCase().includes(searchTerm.toLowerCase()) || p.id.includes(searchTerm))
-  );
+  // Filter packets: exclude finished ones (remainingQuantity === 0)
+  const filteredPackets = packets.filter(p => {
+    const matchesSearch = p.message.toLowerCase().includes(searchTerm.toLowerCase()) || p.id.includes(searchTerm);
+    const isAvailable = p.remainingQuantity > 0; // Only show packets that still have remaining quantity
+    return matchesSearch && isAvailable;
+  });
 
   const formatTimeLeft = (expiresAt: number) => {
     const diff = expiresAt - Date.now();
@@ -65,6 +130,43 @@ export default function App() {
         currentPage={currentPage}
         onNavigate={setCurrentPage}
       />
+
+      {/* Status Message */}
+      {packetStatusMessage && (
+        <>
+          {/* Backdrop/Mask */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-[fadeIn_0.2s_ease-out]"
+            onClick={() => setPacketStatusMessage(null)}
+          ></div>
+          {/* Message */}
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 max-w-md w-full mx-4 animate-pop">
+            <div className={`border-4 border-black shadow-pixel-lg p-4 ${
+              packetStatusMessage.type === 'error' 
+                ? 'bg-pixel-red text-white' 
+                : 'bg-pixel-yellow text-black'
+            }`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-1">
+                  <div className={`w-3 h-3 border-2 border-black ${
+                    packetStatusMessage.type === 'error' ? 'bg-white' : 'bg-black'
+                  }`}></div>
+                  <p className="font-pixel text-xs leading-relaxed flex-1">
+                    {packetStatusMessage.message}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPacketStatusMessage(null)}
+                  className="flex-shrink-0 w-6 h-6 border-2 border-black bg-white text-black hover:bg-gray-200 font-bold text-sm flex items-center justify-center transition-colors"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Main Content */}
       <main className="container mx-auto">
@@ -182,8 +284,18 @@ export default function App() {
                 wallet={wallet} 
                 onCreated={() => {
                     fetchPackets();
+                }}
+                onViewPacket={async (packetId) => {
                     setCurrentPage('home');
-                }} 
+                    const updatedPackets = await fetchPackets();
+                    const packet = updatedPackets.find(p => p.id === packetId);
+                    if (packet) {
+                        setTimeout(() => {
+                            setSelectedPacket(packet);
+                            document.getElementById('packet-list')?.scrollIntoView({ behavior: 'smooth' });
+                        }, 100);
+                    }
+                }}
             />
         )}
 
@@ -207,6 +319,7 @@ export default function App() {
             onClose={() => setSelectedPacket(null)}
             onSuccess={() => {
                 fetchPackets(); // Refresh data
+                setSelectedPacket(null); // Close modal after successful claim
             }}
         />
       )}

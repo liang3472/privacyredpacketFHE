@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { PixelCard, PixelInput, PixelButton } from './ui/PixelComponents';
 import { PacketType, UserWallet } from '../types';
-import { Lock, Shuffle, Users } from 'lucide-react';
+import { Lock, Shuffle, Users, Copy, Check, Share2 } from 'lucide-react';
 import { createPacket } from '../services/blockchainService';
 
 interface CreatePacketProps {
   wallet: UserWallet;
   onCreated: () => void;
+  onViewPacket?: (packetId: string) => void;
 }
 
-const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated }) => {
+const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPacket }) => {
   const [type, setType] = useState<PacketType>(PacketType.RANDOM);
   const [totalAmount, setTotalAmount] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -18,6 +19,9 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [createdPacketId, setCreatedPacketId] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +40,8 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated }) => {
     setError('');
     setLoading(true);
     
-    // Simulate API call
     try {
-        await createPacket({
+        const result = await createPacket({
             type,
             tokenSymbol: 'ETH',
             totalAmount: parseFloat(totalAmount),
@@ -49,8 +52,16 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated }) => {
             isEncrypted: true,
             password,
         });
-        alert("Red Packet Created Successfully!");
-        onCreated();
+        
+        if (result.packetId) {
+            const link = `${window.location.origin}${window.location.pathname}?packetId=${result.packetId}`;
+            setCreatedPacketId(result.packetId);
+            setShareLink(link);
+            onCreated(); // Refresh the packet list
+        } else {
+            alert("Red Packet Created Successfully!");
+            onCreated();
+        }
     } catch (error) {
         console.error(error);
         alert("Failed to create packet");
@@ -58,6 +69,110 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated }) => {
         setLoading(false);
     }
   };
+
+  const handleCopyLink = async () => {
+    if (shareLink) {
+      try {
+        await navigator.clipboard.writeText(shareLink);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = shareLink;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    }
+  };
+
+  const handleCreateAnother = () => {
+    setCreatedPacketId(null);
+    setShareLink('');
+    setTotalAmount('');
+    setQuantity('');
+    setPassword('');
+    setMessage('Best Wishes!');
+    setError('');
+  };
+
+  // Show success message with share link if packet was created
+  if (createdPacketId && shareLink) {
+    return (
+      <div className="max-w-2xl mx-auto py-8 px-4">
+        <div className="text-center mb-8">
+          <h1 className="font-pixel text-2xl md:text-3xl mb-4 text-pixel-darkRed">Red Packet Created!</h1>
+          <p className="font-pixel text-xs text-gray-500">Share the link below to let others claim your packet</p>
+        </div>
+
+        <PixelCard className="mb-6">
+          <div className="text-center py-6">
+            <div className="w-20 h-20 bg-pixel-red border-4 border-black rounded-full flex items-center justify-center mx-auto mb-6 shadow-pixel">
+              <Share2 size={40} className="text-white" />
+            </div>
+            <h2 className="font-pixel text-lg mb-4">Share Your Red Packet</h2>
+            <p className="font-pixel text-xs text-gray-500 mb-6">
+              Copy the link below and share it with your friends
+            </p>
+            
+            <div className="mb-6">
+              <div className="flex gap-2 items-center border-4 border-black p-3 bg-gray-50">
+                <input
+                  type="text"
+                  readOnly
+                  value={shareLink}
+                  className="flex-1 font-pixel text-xs bg-transparent outline-none text-gray-700"
+                />
+                <button
+                  onClick={handleCopyLink}
+                  className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-white hover:bg-gray-100 transition-colors font-pixel text-xs"
+                >
+                  {copied ? (
+                    <>
+                      <Check size={16} className="text-green-600" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={16} />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-4 justify-center">
+              <PixelButton
+                onClick={handleCreateAnother}
+                variant="secondary"
+                className="px-6"
+              >
+                Create Another
+              </PixelButton>
+              <PixelButton
+                onClick={() => {
+                  if (onViewPacket && createdPacketId) {
+                    onViewPacket(createdPacketId);
+                  } else {
+                    window.location.href = shareLink;
+                  }
+                }}
+                className="px-6"
+              >
+                View Packet
+              </PixelButton>
+            </div>
+          </div>
+        </PixelCard>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
