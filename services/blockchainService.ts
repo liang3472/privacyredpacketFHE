@@ -387,8 +387,11 @@ export const claimPacket = async (packetId: string, address: string, password: s
     // Get balance before claim to calculate the amount received
     const balanceBefore = await provider.getBalance(address);
     
+    // Convert packetId from string to BigInt for contract call
+    const packetIdBigInt = BigInt(packetId);
+    
     const tx = await contract.claimPacket(
-      packetId,
+      packetIdBigInt,
       encryptedDataHex,
       inputProofHex
     );
@@ -433,7 +436,9 @@ export const checkUserClaimed = async (packetId: string, userAddress: string): P
     }
 
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-    const hasClaimed = await contract.hasClaimed(packetId, userAddress);
+    // Convert packetId from string to BigInt for contract call
+    const packetIdBigInt = BigInt(packetId);
+    const hasClaimed = await contract.hasClaimed(packetIdBigInt, userAddress);
     return hasClaimed;
   } catch (e) {
     console.error("Error checking if user claimed:", e);
