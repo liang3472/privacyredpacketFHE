@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import ClaimModal from './components/ClaimModal';
 import { PixelCard, PixelButton, PixelBadge } from './components/ui/PixelComponents';
 import { RedPacket, UserWallet, PacketType } from './types';
-import { getPackets, connectWallet } from './services/mockService';
+import { getPackets, connectWallet } from './services/blockchainService';
 import { Search, Gift, Clock, Coins } from 'lucide-react';
 
 declare global {

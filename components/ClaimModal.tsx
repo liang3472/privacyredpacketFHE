@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PixelCard, PixelInput, PixelButton } from './ui/PixelComponents';
 import { RedPacket } from '../types';
-import { claimPacket } from '../services/mockService';
+import { claimPacket } from '../services/blockchainService';
 import { X, Gift } from 'lucide-react';
 
 interface ClaimModalProps {

@@ -15,7 +15,9 @@ const { contract: CONTRACT_ADDRESS, token: TOKEN_ADDRESS } = getConfiguredAddres
 const isOnChainConfigured = CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
 
 // Import full ABI from compiled contract artifact
-import contractArtifact from '../artifacts/contracts/PrivacyRedPacket.sol/PrivacyRedPacket.json';
+// Using contracts directory for better compatibility with Vercel builds
+// @ts-ignore - JSON import is handled by Vite
+import contractArtifact from '../contracts/PrivacyRedPacket.json';
 
 const CONTRACT_ABI = contractArtifact.abi;
 

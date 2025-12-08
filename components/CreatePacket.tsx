@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { PixelCard, PixelInput, PixelButton } from './ui/PixelComponents';
 import { PacketType, UserWallet } from '../types';
 import { Lock, Shuffle, Users } from 'lucide-react';
-import { createPacket } from '../services/mockService';
+import { createPacket } from '../services/blockchainService';
 
 interface CreatePacketProps {
   wallet: UserWallet;

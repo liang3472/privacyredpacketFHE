@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RedPacket, ClaimRecord, UserWallet } from '../types';
-import { getUserHistory } from '../services/mockService';
+import { getUserHistory } from '../services/blockchainService';
 import { PixelCard, PixelBadge } from './ui/PixelComponents';
 import { Coins, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 
