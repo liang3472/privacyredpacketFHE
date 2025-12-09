@@ -18,7 +18,23 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         },
-        extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json']
+        extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'],
+        dedupe: ['@solana-program/system']
+      },
+      optimizeDeps: {
+        include: ['@solana-program/system'],
+        exclude: []
+      },
+      build: {
+        commonjsOptions: {
+          include: [/node_modules/],
+          transformMixedEsModules: true
+        },
+        rollupOptions: {
+          output: {
+            manualChunks: undefined
+          }
+        }
       }
     };
 });
