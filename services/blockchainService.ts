@@ -171,7 +171,7 @@ export const getPackets = async (): Promise<RedPacket[]> => {
         id: id.toString(),
         creator,
         type: Number(packetType) === 0 ? PacketType.RANDOM : PacketType.AVERAGE,
-        tokenSymbol: 'ZAMA', 
+        tokenSymbol: 'ETH', 
         totalAmount: 0, 
         remainingAmount: 0, 
         totalQuantity: Number(totalQuantity),
