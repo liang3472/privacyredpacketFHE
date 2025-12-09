@@ -76,7 +76,7 @@ View your app in AI Studio: https://ai.studio/apps/temp/3
 
 ## Configure Contract Addresses (Frontend)
 
-- Central config lives in `config/addresses.ts`. The current Sepolia contract is `0x9D3bc69774f8A652B0983f88f742604477Ecd2Ee`.
+- Central config lives in `config/addresses.ts`. The current Sepolia contract is `0x21a5E70569288610dee2E01cd6327E36FAE9D315`.
 - You can override at build/run time with environment variables:
   - `VITE_CONTRACT_ADDRESS=<address>`
   - `VITE_TOKEN_ADDRESS=<address>`

@@ -9,7 +9,7 @@ export const ADDRESSES: Record<NetworkKey, { contract: string; token: string }> 
     token: "0x0000000000000000000000000000000000000000",
   },
   sepolia: {
-    contract: "0x9D3bc69774f8A652B0983f88f742604477Ecd2Ee",
+    contract: "0x21a5E70569288610dee2E01cd6327E36FAE9D315",
     token: "0x0000000000000000000000000000000000000000",
   },
 };

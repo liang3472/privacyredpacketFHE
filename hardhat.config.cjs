@@ -10,7 +10,7 @@ const config = {
     sepolia: {
       url: SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
-      timeout: 120000,
+      timeout: 300000, // 增加超时时间到 5 分钟
       gas: 2100000,
       gasPrice: 8000000000,
       httpHeaders: {},

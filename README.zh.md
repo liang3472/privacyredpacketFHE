@@ -75,7 +75,7 @@
 
 ## 配置合约地址（前端）
 
-- 中心配置位于 `config/addresses.ts`。当前 Sepolia 合约地址为 `0x9D3bc69774f8A652B0983f88f742604477Ecd2Ee`。
+- 中心配置位于 `config/addresses.ts`。当前 Sepolia 合约地址为 `0x21a5E70569288610dee2E01cd6327E36FAE9D315`。
 - 可以通过环境变量在构建/运行时覆盖：
   - `VITE_CONTRACT_ADDRESS=<address>`
   - `VITE_TOKEN_ADDRESS=<address>`
