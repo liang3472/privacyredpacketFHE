@@ -114,7 +114,7 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet }) => {
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-pixel text-sm text-red-600">-{packet.totalAmount} {packet.tokenSymbol}</p>
+                                    <p className="font-pixel text-sm text-red-600">-{packet.totalAmount.toFixed(3)} {packet.tokenSymbol}</p>
                                     <PixelBadge color={packet.remainingQuantity === 0 ? 'bg-gray-400' : 'bg-blue-500'}>
                                         {packet.remainingQuantity === 0 ? 'Finished' : 'Active'}
                                     </PixelBadge>

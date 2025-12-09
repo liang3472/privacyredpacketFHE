@@ -160,6 +160,9 @@ export const getPackets = async (): Promise<RedPacket[]> => {
       const { id, creator, packetType, totalQuantity, message, expiresAt } = event.args;
       
       let remainingQuantity = 0;
+      let totalAmount = 0;
+      let remainingAmount = 0;
+      
       try {
           const status = await contract.getPacketStatus(id);
           remainingQuantity = Number(status.remainingQty);
@@ -167,13 +170,33 @@ export const getPackets = async (): Promise<RedPacket[]> => {
           remainingQuantity = Number(totalQuantity);
       }
 
+      // Get packet summary to get actual amounts
+      try {
+          const summary = await contract.packetSummary(id);
+          totalAmount = parseFloat(ethers.formatEther(summary.totalAmount));
+          remainingAmount = parseFloat(ethers.formatEther(summary.remainingAmount));
+      } catch (e) {
+          // If packetSummary fails, try to get amount from creation transaction
+          console.warn(`Failed to get packet summary for ${id.toString()}:`, e);
+          // Fallback: try to get amount from the creation transaction
+          try {
+              const tx = await provider.getTransaction(event.transactionHash);
+              if (tx && tx.value) {
+                  totalAmount = parseFloat(ethers.formatEther(tx.value));
+                  remainingAmount = totalAmount; // Initial remaining is same as total
+              }
+          } catch (txError) {
+              console.warn(`Failed to get transaction value for ${id.toString()}:`, txError);
+          }
+      }
+
       return {
         id: id.toString(),
         creator,
         type: Number(packetType) === 0 ? PacketType.RANDOM : PacketType.AVERAGE,
         tokenSymbol: 'ETH', 
-        totalAmount: 0, 
-        remainingAmount: 0, 
+        totalAmount, 
+        remainingAmount, 
         totalQuantity: Number(totalQuantity),
         remainingQuantity: remainingQuantity,
         createdAt: Date.now(), 
@@ -501,12 +524,86 @@ export const getUserHistory = async (address: string): Promise<{ created: RedPac
    const filter = contract.filters.PacketClaimed(null, address);
    const events = await contract.queryFilter(filter);
    
-   const claimed: ClaimRecord[] = events.map((e: any) => ({
-       packetId: e.args.id.toString(),
-       claimer: e.args.claimer,
-       amount: 0, 
-       claimedAt: Date.now() 
-   }));
+   // Process events to get actual amounts from transaction receipts
+   const claimed: ClaimRecord[] = await Promise.all(
+     events.map(async (e: any) => {
+       try {
+         const packetId = e.args.id.toString();
+         const packet = allPackets.find(p => p.id === packetId);
+         
+         // Get transaction receipt to calculate amount
+         const receipt = await provider.getTransactionReceipt(e.transactionHash);
+         if (!receipt) {
+           // Fallback: use average amount if packet is found and is average type
+           if (packet && packet.type === PacketType.AVERAGE) {
+             return {
+               packetId,
+               claimer: e.args.claimer,
+               amount: packet.totalAmount / packet.totalQuantity,
+               claimedAt: (receipt?.blockNumber ? (await provider.getBlock(receipt.blockNumber))?.timestamp * 1000 : Date.now()) || Date.now()
+             };
+           }
+           return {
+             packetId,
+             claimer: e.args.claimer,
+             amount: 0,
+             claimedAt: Date.now()
+           };
+         }
+
+         // Get block numbers for balance calculation
+         const blockNumber = receipt.blockNumber;
+         const blockBefore = blockNumber > 0 ? blockNumber - 1 : blockNumber;
+         
+         // Get balances before and after the transaction
+         const balanceBefore = await provider.getBalance(address, blockBefore);
+         const balanceAfter = await provider.getBalance(address, blockNumber);
+         
+         // Calculate gas cost
+         const gasUsed = receipt.gasUsed || 0n;
+         const gasPrice = receipt.gasPrice || 0n;
+         const gasCost = gasUsed * gasPrice;
+         
+         // Calculate amount received: (balanceAfter - balanceBefore) + gasCost
+         // (gasCost is added back because it was deducted from balance)
+         const balanceDiff = balanceAfter - balanceBefore;
+         const amountReceived = balanceDiff + gasCost;
+         
+         // Convert from Wei to Ether
+         const amountInEther = parseFloat(ethers.formatEther(amountReceived));
+         
+         // Get block timestamp for claimedAt
+         const block = await provider.getBlock(blockNumber);
+         const claimedAt = block?.timestamp ? block.timestamp * 1000 : Date.now();
+         
+         return {
+           packetId,
+           claimer: e.args.claimer,
+           amount: amountInEther,
+           claimedAt
+         };
+       } catch (error) {
+         console.error(`Error processing claim event for packet ${e.args.id.toString()}:`, error);
+         // Fallback: try to use packet info if available
+         const packetId = e.args.id.toString();
+         const packet = allPackets.find(p => p.id === packetId);
+         if (packet && packet.type === PacketType.AVERAGE) {
+           return {
+             packetId,
+             claimer: e.args.claimer,
+             amount: packet.totalAmount / packet.totalQuantity,
+             claimedAt: Date.now()
+           };
+         }
+         return {
+           packetId,
+           claimer: e.args.claimer,
+           amount: 0,
+           claimedAt: Date.now()
+         };
+       }
+     })
+   );
 
    return { created, claimed };
 };
