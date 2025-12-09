@@ -29,4 +29,7 @@ export interface UserWallet {
   address: string;
   balance: number;
   isConnected: boolean;
+  needsNetworkSwitch?: boolean;
+  chainId?: number;
+  connectionType?: 'metamask' | 'walletconnect';
 }

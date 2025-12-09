@@ -1,20 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { ethers } from 'ethers';
 import Navbar from './components/Navbar';
 import CreatePacket from './components/CreatePacket';
 import Dashboard from './components/Dashboard';
 import ClaimModal from './components/ClaimModal';
 import { PixelCard, PixelButton, PixelBadge } from './components/ui/PixelComponents';
 import { RedPacket, UserWallet, PacketType } from './types';
-import { getPackets, connectWallet, checkUserClaimed, checkWalletStatus } from './services/blockchainService';
+import { getPackets, checkUserClaimed, checkWalletStatus, switchToSepolia } from './services/blockchainService';
 import { Search, Gift, Clock, Coins } from 'lucide-react';
 
-declare global {
-  interface Window {
-    ethereum: any;
-  }
-}
-
 export default function App() {
+  const { ready, authenticated, login, logout, user } = usePrivy();
+  const { wallets } = useWallets();
+  
   const [wallet, setWallet] = useState<UserWallet>({
     address: '',
     balance: 0,
@@ -27,51 +26,72 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [packetStatusMessage, setPacketStatusMessage] = useState<{ type: 'error' | 'info', message: string } | null>(null);
   const [pendingPacketId, setPendingPacketId] = useState<string | null>(null);
+  const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
+
+  // Get Privy provider and signer
+  const getPrivyProvider = async (): Promise<ethers.BrowserProvider | null> => {
+    if (wallets.length === 0) return null;
+    const wallet = wallets[0];
+    if (!wallet) return null;
+    
+    try {
+      // getEthereumProvider might return a Promise or the provider directly
+      let ethereumProvider = wallet.getEthereumProvider();
+      
+      // Check if it's a Promise and await it
+      if (ethereumProvider && typeof (ethereumProvider as any).then === 'function') {
+        ethereumProvider = await (ethereumProvider as Promise<any>);
+      }
+      
+      // Validate the provider has required methods
+      if (!ethereumProvider || typeof ethereumProvider !== 'object') {
+        console.error('Invalid provider from Privy wallet:', ethereumProvider);
+        return null;
+      }
+      
+      // Check if provider has required EIP-1193 methods
+      if (typeof ethereumProvider.request !== 'function') {
+        console.error('Provider does not have request method. Provider:', ethereumProvider);
+        return null;
+      }
+      
+      // Create ethers BrowserProvider with proper typing
+      return new ethers.BrowserProvider(ethereumProvider as any, 'any');
+    } catch (error) {
+      console.error('Error getting Privy provider:', error);
+      return null;
+    }
+  };
 
   // Check wallet status on page load and listen for changes
   useEffect(() => {
-    const checkWallet = async () => {
-      const walletData = await checkWalletStatus();
-      setWallet(walletData);
-    };
-
-    // Check wallet status on initial load
-    checkWallet();
-    fetchPackets();
-
-    // Listen for account changes
-    if (window.ethereum) {
-      const handleAccountsChanged = async (accounts: string[]) => {
-        if (accounts.length > 0) {
-          // Account changed, update wallet status
-          const walletData = await checkWalletStatus();
+    const updateWalletStatus = async () => {
+      if (!ready) return;
+      
+      if (authenticated && wallets.length > 0) {
+        const privyProvider = await getPrivyProvider();
+        if (privyProvider) {
+          setProvider(privyProvider);
+          const address = wallets[0].address;
+          const walletData = await checkWalletStatus(privyProvider, address);
           setWallet(walletData);
+          
+          // Fetch packets when wallet is connected
+          if (walletData.isConnected) {
+            fetchPackets(privyProvider);
+          }
         } else {
-          // Wallet disconnected
+          setProvider(null);
           setWallet({ address: '', balance: 0, isConnected: false });
         }
-      };
+      } else {
+        setProvider(null);
+        setWallet({ address: '', balance: 0, isConnected: false });
+      }
+    };
 
-      const handleChainChanged = async () => {
-        // Chain changed, refresh wallet status
-        const walletData = await checkWalletStatus();
-        setWallet(walletData);
-      };
-
-      // Listen for account changes
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
-      // Listen for chain changes
-      window.ethereum.on('chainChanged', handleChainChanged);
-
-      // Cleanup listeners on unmount
-      return () => {
-        if (window.ethereum) {
-          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-          window.ethereum.removeListener('chainChanged', handleChainChanged);
-        }
-      };
-    }
-  }, []);
+    updateWalletStatus();
+  }, [ready, authenticated, wallets]);
 
   // Handle URL parameter for packet sharing
   useEffect(() => {
@@ -86,8 +106,8 @@ export default function App() {
         // Check if packet is finished (all claimed)
         if (packet.remainingQuantity === 0) {
           // Check if current user has claimed it
-          if (wallet.isConnected && wallet.address) {
-            checkUserClaimed(packetId, wallet.address).then(hasClaimed => {
+          if (wallet.isConnected && wallet.address && provider) {
+            checkUserClaimed(packetId, wallet.address, provider).then(hasClaimed => {
               if (hasClaimed) {
                 setPacketStatusMessage({
                   type: 'info',
@@ -165,15 +185,90 @@ export default function App() {
     }
   }, [wallet.isConnected, pendingPacketId, packets]);
 
-  const fetchPackets = async () => {
-    const data = await getPackets();
-    setPackets(data);
-    return data;
+  const fetchPackets = async (currentProvider?: ethers.BrowserProvider) => {
+    const providerToUse = currentProvider || provider;
+    if (!providerToUse) {
+      console.warn('No provider available to fetch packets');
+      return [];
+    }
+    try {
+      const data = await getPackets(providerToUse);
+      setPackets(data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching packets:', error);
+      return [];
+    }
   };
 
   const handleConnect = async () => {
-    const walletData = await connectWallet();
-    setWallet(walletData);
+    try {
+      await login();
+    } catch (error: any) {
+      console.error('Connection error:', error);
+      setPacketStatusMessage({
+        type: 'error',
+        message: `Failed to connect wallet: ${error.message || 'Unknown error'}`
+      });
+      setTimeout(() => setPacketStatusMessage(null), 5000);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await logout();
+      setWallet({ address: '', balance: 0, isConnected: false });
+    } catch (error: any) {
+      console.error('Disconnect error:', error);
+    }
+  };
+
+  const handleSwitchNetwork = async () => {
+    try {
+      setPacketStatusMessage({
+        type: 'info',
+        message: 'Switching to Sepolia testnet...'
+      });
+      
+      if (!provider) {
+        throw new Error('No provider available');
+      }
+      
+      await switchToSepolia(provider);
+      
+      // Wait a bit for the network change to propagate
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Reload wallet status after switching
+      if (wallets.length > 0) {
+        const address = wallets[0].address;
+        const walletData = await checkWalletStatus(provider, address);
+        setWallet(walletData);
+        
+        if (walletData.needsNetworkSwitch) {
+          // Still on wrong network
+          setPacketStatusMessage({
+            type: 'error',
+            message: `Still on wrong network. Please manually switch to Sepolia testnet (Chain ID: 11155111) in your wallet.`
+          });
+          setTimeout(() => setPacketStatusMessage(null), 5000);
+        } else {
+          // Successfully switched
+          setPacketStatusMessage({
+            type: 'info',
+            message: 'Successfully switched to Sepolia testnet!'
+          });
+          setTimeout(() => setPacketStatusMessage(null), 3000);
+        }
+      }
+    } catch (error: any) {
+      console.error('Network switch error:', error);
+      setPacketStatusMessage({
+        type: 'error',
+        message: `Failed to switch network: ${error.message || 'Unknown error'}. Please manually switch to Sepolia testnet (Chain ID: 11155111) in your wallet.`
+      });
+      setTimeout(() => setPacketStatusMessage(null), 5000);
+    }
   };
 
   // Filter packets: exclude finished ones (remainingQuantity === 0)
@@ -192,12 +287,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-pixel-bg pb-20">
+    <div className="min-h-screen bg-pixel-bg flex flex-col">
       <Navbar 
         wallet={wallet} 
-        onConnect={handleConnect} 
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        onSwitchNetwork={handleSwitchNetwork}
         currentPage={currentPage}
         onNavigate={setCurrentPage}
+        isAuthenticated={authenticated}
       />
 
       {/* Status Message */}
@@ -238,7 +336,7 @@ export default function App() {
       )}
 
       {/* Main Content */}
-      <main className="container mx-auto">
+      <main className="container mx-auto flex-1 pb-20">
         {currentPage === 'home' && (
             <div className="px-4 py-8">
                 {/* Hero */}
@@ -350,7 +448,8 @@ export default function App() {
 
         {currentPage === 'create' && (
             <CreatePacket 
-                wallet={wallet} 
+                wallet={wallet}
+                provider={provider}
                 onCreated={() => {
                     fetchPackets();
                 }}
@@ -369,22 +468,24 @@ export default function App() {
         )}
 
         {currentPage === 'dashboard' && (
-            <Dashboard wallet={wallet} />
+            <Dashboard wallet={wallet} provider={provider} />
         )}
       </main>
 
       {/* Footer */}
-      <footer className="mt-20 border-t-4 border-black bg-white py-8 text-center">
+      <footer className="mt-auto border-t-4 border-black bg-white py-8 text-center">
         <p className="font-pixel text-[10px] text-gray-400">
             PrivacyRedPacket © 2024. Built with React & Tailwind.
         </p>
       </footer>
 
       {/* Modal */}
-      {selectedPacket && wallet.isConnected && wallet.address && (
+      {selectedPacket && wallet.isConnected && wallet.address && provider && (
         <ClaimModal 
             packet={selectedPacket} 
             userAddress={wallet.address}
+            wallet={wallet}
+            provider={provider}
             onClose={() => setSelectedPacket(null)}
             onSuccess={() => {
                 fetchPackets(); // Refresh data

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ethers } from 'ethers';
 import { PixelCard, PixelInput, PixelButton } from './ui/PixelComponents';
 import { PacketType, UserWallet } from '../types';
 import { Lock, Shuffle, Users, Copy, Check, Share2 } from 'lucide-react';
@@ -6,11 +7,12 @@ import { createPacket } from '../services/blockchainService';
 
 interface CreatePacketProps {
   wallet: UserWallet;
+  provider: ethers.BrowserProvider | null;
   onCreated: () => void;
   onViewPacket?: (packetId: string) => void;
 }
 
-const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPacket }) => {
+const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, provider, onCreated, onViewPacket }) => {
   const [type, setType] = useState<PacketType>(PacketType.RANDOM);
   const [totalAmount, setTotalAmount] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -26,7 +28,12 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPa
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!wallet.isConnected) {
-        alert("Please connect wallet first!");
+        setError("Please connect wallet first!");
+        return;
+    }
+    // Check if on Sepolia testnet
+    if (wallet.needsNetworkSwitch) {
+        setError(`This app only supports Sepolia testnet (Chain ID: 11155111). Please switch your network.`);
         return;
     }
     if (password.length < 6 || password.length > 16) {
@@ -40,7 +47,14 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPa
     setError('');
     setLoading(true);
     
+    if (!provider) {
+        setError('Provider not available');
+        setLoading(false);
+        return;
+    }
+    
     try {
+        const signer = await provider.getSigner();
         const result = await createPacket({
             type,
             tokenSymbol: 'ETH',
@@ -51,7 +65,7 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPa
             creator: wallet.address,
             isEncrypted: true,
             password,
-        });
+        }, provider, signer);
         
         if (result.packetId) {
             const link = `${window.location.origin}${window.location.pathname}?packetId=${result.packetId}`;
@@ -264,6 +278,15 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPa
             onChange={(e) => setMessage(e.target.value)}
           />
 
+          {wallet.needsNetworkSwitch && (
+            <div className="bg-orange-50 border-2 border-orange-500 p-3 mb-4">
+              <p className="font-pixel text-xs text-orange-800">
+                ⚠️ This app only supports Sepolia testnet (Chain ID: 11155111). 
+                Please switch your network to continue.
+              </p>
+            </div>
+          )}
+
           {error && (
             <p className="text-red-500 font-pixel text-[10px] -mt-2">{error}</p>
           )}
@@ -285,8 +308,9 @@ const CreatePacket: React.FC<CreatePacketProps> = ({ wallet, onCreated, onViewPa
                 type="submit" 
                 className="w-full text-center flex justify-center py-4"
                 isLoading={loading}
+                disabled={wallet.needsNetworkSwitch}
             >
-                Generate Packet
+                {wallet.needsNetworkSwitch ? 'Switch to Sepolia First' : 'Generate Packet'}
             </PixelButton>
           </div>
         </form>

@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { RedPacket, PacketType, ClaimRecord, UserWallet } from '../types';
 import { getConfiguredAddresses } from '../config/addresses';
+import { SEPOLIA_CHAIN_ID } from './privyService';
 
 declare global {
   interface Window {
@@ -30,30 +31,86 @@ const TOKEN_ABI = [
 // FHEVM SETUP
 // ==========================================
 let _fhevmInstance: any = null;
-let _signer: ethers.Signer | null = null;
-let _provider: ethers.BrowserProvider | null = null;
 
-
-const getProvider = () => {
-  if (!_provider && window.ethereum) {
-    _provider = new ethers.BrowserProvider(window.ethereum);
+/**
+ * Check if current network is Sepolia
+ * This app only supports Sepolia testnet
+ */
+export const checkNetwork = async (provider: ethers.BrowserProvider): Promise<{ isSepolia: boolean; chainId: number; chainName?: string }> => {
+  try {
+    const network = await provider.getNetwork();
+    const chainId = Number(network.chainId);
+    const isSepolia = chainId === SEPOLIA_CHAIN_ID;
+    
+    // Get chain name for better error messages
+    let chainName = 'Unknown';
+    if (chainId === 1) chainName = 'Ethereum Mainnet';
+    else if (chainId === 11155111) chainName = 'Sepolia Testnet';
+    else if (chainId === 5) chainName = 'Goerli Testnet';
+    else if (chainId === 137) chainName = 'Polygon';
+    else chainName = `Chain ${chainId}`;
+    
+    return {
+      isSepolia,
+      chainId,
+      chainName,
+    };
+  } catch (error) {
+    console.error('Error checking network:', error);
+    return { isSepolia: false, chainId: 0, chainName: 'Unknown' };
   }
-  return _provider;
 };
 
-const getSigner = async () => {
-  const provider = getProvider();
-  if (provider) {
-    _signer = await provider.getSigner();
-    return _signer;
+/**
+ * Switch to Sepolia network via provider
+ * This app only supports Sepolia testnet
+ */
+export const switchToSepolia = async (provider: ethers.BrowserProvider): Promise<void> => {
+  try {
+    const network = await provider.getNetwork();
+    const currentChainId = Number(network.chainId);
+    
+    // If already on Sepolia, no need to switch
+    if (currentChainId === SEPOLIA_CHAIN_ID) {
+      console.log('Already on Sepolia network');
+      return;
+    }
+
+    // Request to switch chain
+    try {
+      await provider.send('wallet_switchEthereumChain', [
+        { chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}` }
+      ]);
+    } catch (switchError: any) {
+      // If chain doesn't exist, add it
+      if (switchError.code === 4902 || switchError.message?.includes('not been added') || switchError.message?.includes('Unrecognized chain')) {
+        console.log('Sepolia network not found in wallet, adding it...');
+        await provider.send('wallet_addEthereumChain', [
+          {
+            chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}`,
+            chainName: 'Sepolia',
+            nativeCurrency: {
+              name: 'Ether',
+              symbol: 'ETH',
+              decimals: 18,
+            },
+            rpcUrls: ['https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161'],
+            blockExplorerUrls: ['https://sepolia.etherscan.io'],
+          },
+        ]);
+      } else {
+        throw switchError;
+      }
+    }
+  } catch (error: any) {
+    console.error('Failed to switch to Sepolia:', error);
+    throw new Error(`Failed to switch to Sepolia testnet: ${error.message || 'Unknown error'}`);
   }
-  throw new Error("No wallet provider");
 };
 
-const getFhevmInstance = async () => {
+const getFhevmInstance = async (provider: ethers.BrowserProvider) => {
   if (_fhevmInstance) return _fhevmInstance;
   
-  const provider = getProvider();
   if (!provider) throw new Error("No provider");
   
   const network = await provider.getNetwork();
@@ -78,78 +135,57 @@ const getFhevmInstance = async () => {
 // SERVICE METHODS
 // ==========================================
 
-// Check wallet status without requesting connection
-export const checkWalletStatus = async (): Promise<UserWallet> => {
-  if (!window.ethereum) {
+// Check wallet status using Privy provider
+export const checkWalletStatus = async (provider: ethers.BrowserProvider | null, address: string | null): Promise<UserWallet> => {
+  if (!provider || !address) {
     return { address: '', balance: 0, isConnected: false };
   }
   
   try {
-    const provider = getProvider();
-    if (!provider) {
-      return { address: '', balance: 0, isConnected: false };
-    }
+    const balance = parseFloat(ethers.formatEther(await provider.getBalance(address)));
     
-    // Use eth_accounts instead of eth_requestAccounts to check without prompting
-    const accounts = await provider.send("eth_accounts", []);
-    
-    if (accounts && accounts.length > 0) {
-      const signer = await getSigner();
-      const address = await signer.getAddress();
-      const balance = parseFloat(ethers.formatEther(await provider.getBalance(address)));
-      
-      return {
-        address,
-        balance,
-        isConnected: true
+    // Check network - this app only supports Sepolia testnet
+    const networkCheck = await checkNetwork(provider);
+    if (!networkCheck.isSepolia) {
+      return { 
+        address, 
+        balance, 
+        isConnected: true, 
+        needsNetworkSwitch: true, 
+        chainId: networkCheck.chainId,
+        connectionType: 'metamask' // Privy uses 'metamask' as connection type
       };
     }
     
-    return { address: '', balance: 0, isConnected: false };
+    return {
+      address,
+      balance,
+      isConnected: true,
+      connectionType: 'metamask'
+    };
   } catch (e) {
     console.error("Error checking wallet status:", e);
     return { address: '', balance: 0, isConnected: false };
   }
 };
 
+// This function is no longer needed as Privy handles connection
+// Keeping for backward compatibility but it should not be called
 export const connectWallet = async (): Promise<UserWallet> => {
-  if (!window.ethereum) {
-    alert("Please install MetaMask!");
-    return { address: '', balance: 0, isConnected: false };
-  }
-  
-  try {
-    const provider = getProvider();
-    await provider?.send("eth_requestAccounts", []);
-    const signer = await getSigner();
-    const address = await signer.getAddress();
-    const balance = parseFloat(ethers.formatEther(await provider!.getBalance(address)));
-    
-    return {
-      address,
-      balance,
-      isConnected: true
-    };
-  } catch (e) {
-    console.error(e);
-    return { address: '', balance: 0, isConnected: false };
-  }
+  console.warn('connectWallet is deprecated. Use Privy hooks directly.');
+  return { address: '', balance: 0, isConnected: false };
 };
 
-export const getPackets = async (): Promise<RedPacket[]> => {
+export const getPackets = async (provider: ethers.BrowserProvider): Promise<RedPacket[]> => {
   if (!isOnChainConfigured) {
     throw new Error("Contract address not configured. Please set up the contract address.");
   }
 
-  if (!window.ethereum) {
-    throw new Error("Please install MetaMask or another Web3 wallet.");
+  if (!provider) {
+    throw new Error("Provider is required");
   }
 
   try {
-    const provider = getProvider();
-    if (!provider) {
-      throw new Error("Failed to get provider");
-    }
 
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     
@@ -213,23 +249,26 @@ export const getPackets = async (): Promise<RedPacket[]> => {
   }
 };
 
-export const createPacket = async (packet: Omit<RedPacket, 'id' | 'remainingAmount' | 'remainingQuantity' | 'createdAt'> & { password?: string }) => {
+export const createPacket = async (
+  packet: Omit<RedPacket, 'id' | 'remainingAmount' | 'remainingQuantity' | 'createdAt'> & { password?: string },
+  provider: ethers.BrowserProvider,
+  signer: ethers.Signer
+) => {
   if (!isOnChainConfigured) {
     throw new Error("Contract address not configured. Please set up the contract address.");
   }
 
-  if (!window.ethereum) {
-    throw new Error("Please install MetaMask or another Web3 wallet.");
+  if (!provider || !signer) {
+    throw new Error("Provider and signer are required");
   }
 
   if (!packet.password) {
     throw new Error("Password required");
   }
 
-  const signer = await getSigner();
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
   const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, signer);
-  const instance = await getFhevmInstance();
+  const instance = await getFhevmInstance(provider);
 
   if (!instance) {
     throw new Error("FHEVM not initialized. Are you on the correct network?");
@@ -242,21 +281,18 @@ export const createPacket = async (packet: Omit<RedPacket, 'id' | 'remainingAmou
   const passwordBytes = ethers.toUtf8Bytes(packet.password);
   const passwordBigInt = BigInt(ethers.hexlify(passwordBytes));
   
-  // First, try to get existing public key from the instance
-  let publicKeyData = instance.getPublicKey(CONTRACT_ADDRESS);
-  let signature: string;
-  
-  // If no public key exists, generate it
-  if (!publicKeyData) {
-    // Generate token - this will create a public key and EIP712 signature
-    // Note: If contract doesn't support getPublicKey, we skip that step
-    const provider = getProvider();
-    if (!provider) throw new Error("No provider");
+    // First, try to get existing public key from the instance
+    let publicKeyData = instance.getPublicKey(CONTRACT_ADDRESS);
+    let signature: string;
     
-    const { publicKey, eip712 } = await instance.generatePublicKey({
-      verifyingContract: CONTRACT_ADDRESS,
-      chainId: Number((await provider.getNetwork()).chainId)
-    });
+    // If no public key exists, generate it
+    if (!publicKeyData) {
+      // Generate token - this will create a public key and EIP712 signature
+      // Note: If contract doesn't support getPublicKey, we skip that step
+      const { publicKey, eip712 } = await instance.generatePublicKey({
+        verifyingContract: CONTRACT_ADDRESS,
+        chainId: Number((await provider.getNetwork()).chainId)
+      });
     
     // Sign the EIP712 message to create the proof
     // ethers v6: EIP712Domain should NOT be in types, only in domain
@@ -351,19 +387,24 @@ export const createPacket = async (packet: Omit<RedPacket, 'id' | 'remainingAmou
   return { tx, packetId };
 };
 
-export const claimPacket = async (packetId: string, address: string, password: string): Promise<{ success: boolean; amount: number; message?: string; remainingAttempts?: number; cooldown?: number }> => {
+export const claimPacket = async (
+  packetId: string,
+  address: string,
+  password: string,
+  provider: ethers.BrowserProvider,
+  signer: ethers.Signer
+): Promise<{ success: boolean; amount: number; message?: string; remainingAttempts?: number; cooldown?: number }> => {
   if (!isOnChainConfigured) {
     return { success: false, amount: 0, message: "Contract address not configured. Please set up the contract address." };
   }
 
-  if (!window.ethereum) {
-    return { success: false, amount: 0, message: "Please install MetaMask or another Web3 wallet." };
+  if (!provider || !signer) {
+    return { success: false, amount: 0, message: "Provider and signer are required" };
   }
 
   try {
-    const signer = await getSigner();
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-    const instance = await getFhevmInstance();
+    const instance = await getFhevmInstance(provider);
 
     if (!instance) {
       return { success: false, amount: 0, message: "FHEVM not initialized. Are you on the correct network?" };
@@ -374,11 +415,6 @@ export const claimPacket = async (packetId: string, address: string, password: s
     const passwordBigInt = BigInt(ethers.hexlify(passwordBytes));
     
     // Generate public key and EIP712 signature for the contract
-    const provider = getProvider();
-    if (!provider) {
-      return { success: false, amount: 0, message: 'Failed to get provider' };
-    }
-    
     const network = await provider.getNetwork();
     const { publicKey, eip712 } = await instance.generatePublicKey({
       verifyingContract: CONTRACT_ADDRESS,
@@ -477,20 +513,16 @@ export const claimPacket = async (packetId: string, address: string, password: s
   }
 };
 
-export const checkUserClaimed = async (packetId: string, userAddress: string): Promise<boolean> => {
+export const checkUserClaimed = async (packetId: string, userAddress: string, provider: ethers.BrowserProvider): Promise<boolean> => {
   if (!isOnChainConfigured) {
     return false;
   }
 
-  if (!window.ethereum) {
+  if (!provider) {
     return false;
   }
 
   try {
-    const provider = getProvider();
-    if (!provider) {
-      return false;
-    }
 
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     // Convert packetId from string to BigInt for contract call
@@ -503,22 +535,17 @@ export const checkUserClaimed = async (packetId: string, userAddress: string): P
   }
 };
 
-export const getUserHistory = async (address: string): Promise<{ created: RedPacket[], claimed: ClaimRecord[] }> => {
+export const getUserHistory = async (address: string, provider: ethers.BrowserProvider): Promise<{ created: RedPacket[], claimed: ClaimRecord[] }> => {
    if (!isOnChainConfigured) {
      throw new Error("Contract address not configured. Please set up the contract address.");
    }
 
-   if (!window.ethereum) {
-     throw new Error("Please install MetaMask or another Web3 wallet.");
+   if (!provider) {
+     throw new Error("Provider is required");
    }
 
-   const allPackets = await getPackets();
+   const allPackets = await getPackets(provider);
    const created = allPackets.filter(p => p.creator.toLowerCase() === address.toLowerCase());
-   
-   const provider = getProvider();
-   if (!provider) {
-     return { created, claimed: [] };
-   }
 
    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
    const filter = contract.filters.PacketClaimed(null, address);

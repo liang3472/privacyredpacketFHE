@@ -1,17 +1,21 @@
 import React from 'react';
 import { PixelButton } from './ui/PixelComponents';
 import { UserWallet } from '../types';
-import { Wallet, Menu, X } from 'lucide-react';
+import { Wallet, Menu, X, RefreshCw, ChevronDown } from 'lucide-react';
 
 interface NavbarProps {
   wallet: UserWallet;
   onConnect: () => void;
+  onDisconnect?: () => void;
+  onSwitchNetwork?: () => void;
   currentPage: string;
   onNavigate: (page: string) => void;
+  isAuthenticated: boolean;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ wallet, onConnect, currentPage, onNavigate }) => {
+const Navbar: React.FC<NavbarProps> = ({ wallet, onConnect, onDisconnect, onSwitchNetwork, currentPage, onNavigate, isAuthenticated }) => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const [showConnectMenu, setShowConnectMenu] = React.useState(false);
 
   const NavItems = [
     { id: 'home', label: 'Home' },
@@ -47,15 +51,38 @@ const Navbar: React.FC<NavbarProps> = ({ wallet, onConnect, currentPage, onNavig
         </div>
 
         {/* Wallet & Mobile Menu Toggle */}
-        <div className="flex items-center gap-3">
-            <PixelButton 
-                onClick={onConnect} 
-                variant={wallet.isConnected ? 'secondary' : 'primary'}
-                className="!py-2 !px-3 !text-[10px] sm:!text-xs flex items-center gap-2"
-            >
-                <Wallet size={16} />
-                {wallet.isConnected ? `${wallet.address.slice(0,6)}...${wallet.address.slice(-4)}` : 'Connect'}
-            </PixelButton>
+        <div className="flex items-center gap-3 relative">
+            {wallet.isConnected && wallet.needsNetworkSwitch && onSwitchNetwork ? (
+              <PixelButton 
+                  onClick={onSwitchNetwork} 
+                  variant="primary"
+                  className="!py-2 !px-3 !text-[10px] sm:!text-xs flex items-center gap-2 bg-orange-500 hover:bg-orange-600"
+                  title={`Switch to Sepolia testnet (Chain ID: 11155111). Current: ${wallet.chainId || 'Unknown'}`}
+              >
+                  <RefreshCw size={16} />
+                  Switch to Sepolia
+              </PixelButton>
+            ) : null}
+            
+            {!wallet.isConnected || !isAuthenticated ? (
+              <PixelButton 
+                  onClick={onConnect} 
+                  variant="primary"
+                  className="!py-2 !px-3 !text-[10px] sm:!text-xs flex items-center gap-2"
+              >
+                  <Wallet size={16} />
+                  Connect
+              </PixelButton>
+            ) : (
+              <PixelButton 
+                  onClick={onDisconnect} 
+                  variant="secondary"
+                  className="!py-2 !px-3 !text-[10px] sm:!text-xs flex items-center gap-2"
+              >
+                  <Wallet size={16} />
+                  {wallet.address.slice(0,6)}...{wallet.address.slice(-4)}
+              </PixelButton>
+            )}
             
             <button 
                 className="md:hidden p-2 border-4 border-black hover:bg-gray-100"
@@ -81,7 +108,61 @@ const Navbar: React.FC<NavbarProps> = ({ wallet, onConnect, currentPage, onNavig
               {item.label}
             </button>
           ))}
+          {(!wallet.isConnected || !isAuthenticated) && (
+            <>
+              <div className="border-t-2 border-gray-300 my-2"></div>
+              <button
+                onClick={() => {
+                  onConnect();
+                  setIsMenuOpen(false);
+                }}
+                className="font-pixel text-left text-xs p-2 hover:bg-gray-100 border-2 border-transparent hover:border-black flex items-center gap-2"
+              >
+                <Wallet size={16} />
+                Connect Wallet
+              </button>
+            </>
+          )}
+          {wallet.isConnected && isAuthenticated && onDisconnect && (
+            <>
+              <div className="border-t-2 border-gray-300 my-2"></div>
+              <button
+                onClick={() => {
+                  onDisconnect();
+                  setIsMenuOpen(false);
+                }}
+                className="font-pixel text-left text-xs p-2 hover:bg-gray-100 border-2 border-transparent hover:border-black flex items-center gap-2"
+              >
+                <Wallet size={16} />
+                Disconnect
+              </button>
+            </>
+          )}
+          {wallet.isConnected && wallet.needsNetworkSwitch && onSwitchNetwork && (
+            <>
+              <div className="border-t-2 border-gray-300 my-2"></div>
+              <button
+                onClick={() => {
+                  onSwitchNetwork();
+                  setIsMenuOpen(false);
+                }}
+                className="font-pixel text-left text-xs p-2 bg-orange-500 text-white hover:bg-orange-600 border-2 border-black flex items-center gap-2"
+                title={`Switch to Sepolia testnet (Chain ID: 11155111). Current: ${wallet.chainId || 'Unknown'}`}
+              >
+                <RefreshCw size={16} />
+                Switch to Sepolia
+              </button>
+            </>
+          )}
         </div>
+      )}
+      
+      {/* Click outside to close connect menu */}
+      {showConnectMenu && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setShowConnectMenu(false)}
+        />
       )}
     </nav>
   );

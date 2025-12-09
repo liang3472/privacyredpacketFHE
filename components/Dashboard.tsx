@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ethers } from 'ethers';
 import { RedPacket, ClaimRecord, UserWallet } from '../types';
 import { getUserHistory, getPackets } from '../services/blockchainService';
 import { PixelCard, PixelBadge } from './ui/PixelComponents';
@@ -6,20 +7,21 @@ import { Coins, ArrowUpRight, ArrowDownLeft, Copy, Check } from 'lucide-react';
 
 interface DashboardProps {
     wallet: UserWallet;
+    provider: ethers.BrowserProvider | null;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ wallet }) => {
+const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
     const [history, setHistory] = useState<{ created: RedPacket[], claimed: ClaimRecord[] }>({ created: [], claimed: [] });
     const [activeTab, setActiveTab] = useState<'received' | 'sent'>('received');
     const [allPackets, setAllPackets] = useState<RedPacket[]>([]);
     const [copiedPacketId, setCopiedPacketId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (wallet.isConnected) {
-            getUserHistory(wallet.address).then(setHistory);
-            getPackets().then(setAllPackets).catch(console.error);
+        if (wallet.isConnected && provider) {
+            getUserHistory(wallet.address, provider).then(setHistory);
+            getPackets(provider).then(setAllPackets).catch(console.error);
         }
-    }, [wallet]);
+    }, [wallet, provider]);
 
     const copyShareLink = async (packetId: string) => {
         const shareLink = `${window.location.origin}${window.location.pathname}?packetId=${packetId}`;

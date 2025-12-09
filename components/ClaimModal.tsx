@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
+import { ethers } from 'ethers';
 import { PixelCard, PixelInput, PixelButton } from './ui/PixelComponents';
-import { RedPacket } from '../types';
+import { RedPacket, UserWallet } from '../types';
 import { claimPacket } from '../services/blockchainService';
 import { X, Gift } from 'lucide-react';
 
 interface ClaimModalProps {
   packet: RedPacket;
   userAddress: string;
+  wallet: UserWallet;
+  provider: ethers.BrowserProvider | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, onClose, onSuccess }) => {
+const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, wallet, provider, onClose, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<'idle' | 'decrypting' | 'success' | 'error'>('idle');
   const [resultAmount, setResultAmount] = useState<number | null>(null);
@@ -24,11 +27,26 @@ const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, onClose, o
 
   const handleClaim = async () => {
     if (!password) return;
+    
+    // Check if on Sepolia testnet
+    if (wallet.needsNetworkSwitch) {
+      setErrorMsg(`This app only supports Sepolia testnet (Chain ID: 11155111). Please switch your network.`);
+      setStatus('error');
+      return;
+    }
+    
     setStatus('decrypting');
     setErrorMsg('');
 
+    if (!provider) {
+        setErrorMsg('Provider not available');
+        setStatus('error');
+        return;
+    }
+
     try {
-        const res = await claimPacket(packet.id, userAddress, password);
+        const signer = await provider.getSigner();
+        const res = await claimPacket(packet.id, userAddress, password, provider, signer);
         if (res.success) {
             setResultAmount(res.amount);
             setStatus('success');
@@ -39,9 +57,9 @@ const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, onClose, o
             if (res.cooldown) setCooldownMs(res.cooldown);
             if (typeof res.remainingAttempts === 'number') setAttemptsLeft(res.remainingAttempts);
         }
-    } catch (e) {
+    } catch (e: any) {
         setStatus('error');
-        setErrorMsg('Network error');
+        setErrorMsg(e.message || 'Network error');
     }
   };
 
@@ -83,6 +101,15 @@ const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, onClose, o
                         </p>
                     </div>
 
+                    {wallet.needsNetworkSwitch && (
+                        <div className="bg-orange-50 border-2 border-orange-500 p-3 mb-4">
+                            <p className="font-pixel text-xs text-orange-800">
+                                ⚠️ This app only supports Sepolia testnet (Chain ID: 11155111). 
+                                Please switch your network to claim this packet.
+                            </p>
+                        </div>
+                    )}
+
                     <PixelInput 
                         placeholder="Enter Password"
                         type="password"
@@ -109,9 +136,17 @@ const ClaimModal: React.FC<ClaimModalProps> = ({ packet, userAddress, onClose, o
                         onClick={handleClaim} 
                         className="w-full"
                         isLoading={status === 'decrypting'}
-                        disabled={!password || isExpired || isFinished || cooldownMs > 0}
+                        disabled={!password || isExpired || isFinished || cooldownMs > 0 || wallet.needsNetworkSwitch}
                     >
-                        {isExpired ? 'EXPIRED' : isFinished ? 'FINISHED' : status === 'decrypting' ? 'VERIFYING ZK PROOF...' : 'OPEN PACKET'}
+                        {wallet.needsNetworkSwitch 
+                          ? 'SWITCH TO SEPOLIA FIRST' 
+                          : isExpired 
+                            ? 'EXPIRED' 
+                            : isFinished 
+                              ? 'FINISHED' 
+                              : status === 'decrypting' 
+                                ? 'VERIFYING ZK PROOF...' 
+                                : 'OPEN PACKET'}
                     </PixelButton>
                 </>
             )}

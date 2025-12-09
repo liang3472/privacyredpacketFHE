@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.2.0",
+    "@privy-io/react-auth": "^3.8.1",
     "ethers": "^6.14.0",
     "fhevmjs": "0.4.0",
     "lucide-react": "^0.556.0",
