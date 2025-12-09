@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { RedPacket, ClaimRecord, UserWallet } from '../types';
-import { getUserHistory } from '../services/blockchainService';
+import { getUserHistory, getPackets } from '../services/blockchainService';
 import { PixelCard, PixelBadge } from './ui/PixelComponents';
-import { Coins, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Coins, ArrowUpRight, ArrowDownLeft, Copy, Check } from 'lucide-react';
 
 interface DashboardProps {
     wallet: UserWallet;
@@ -11,12 +11,35 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ wallet }) => {
     const [history, setHistory] = useState<{ created: RedPacket[], claimed: ClaimRecord[] }>({ created: [], claimed: [] });
     const [activeTab, setActiveTab] = useState<'received' | 'sent'>('received');
+    const [allPackets, setAllPackets] = useState<RedPacket[]>([]);
+    const [copiedPacketId, setCopiedPacketId] = useState<string | null>(null);
 
     useEffect(() => {
         if (wallet.isConnected) {
             getUserHistory(wallet.address).then(setHistory);
+            getPackets().then(setAllPackets).catch(console.error);
         }
     }, [wallet]);
+
+    const copyShareLink = async (packetId: string) => {
+        const shareLink = `${window.location.origin}${window.location.pathname}?packetId=${packetId}`;
+        try {
+            await navigator.clipboard.writeText(shareLink);
+            setCopiedPacketId(packetId);
+            setTimeout(() => setCopiedPacketId(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = shareLink;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            setCopiedPacketId(packetId);
+            setTimeout(() => setCopiedPacketId(null), 2000);
+        }
+    };
 
     if (!wallet.isConnected) {
         return (
@@ -78,49 +101,92 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet }) => {
                     history.claimed.length === 0 ? (
                         <div className="text-center font-pixel text-xs text-gray-400 py-10">No records found</div>
                     ) : (
-                        history.claimed.map((record, idx) => (
-                            <PixelCard key={idx} className="flex justify-between items-center !p-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-10 h-10 bg-pixel-yellow border-2 border-black flex items-center justify-center">
-                                        <Coins size={20} />
+                        history.claimed.map((record, idx) => {
+                            const packet = allPackets.find(p => p.id === record.packetId);
+                            const hasRemaining = packet && packet.remainingQuantity > 0 && packet.expiresAt > Date.now();
+                            return (
+                                <PixelCard key={idx} className="flex justify-between items-center !p-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 bg-pixel-yellow border-2 border-black flex items-center justify-center">
+                                            <Coins size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="font-pixel text-xs mb-1">Packet #{record.packetId}</p>
+                                            <p className="font-pixel text-[10px] text-gray-500">{new Date(record.claimedAt).toLocaleDateString()}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="font-pixel text-xs mb-1">Packet #{record.packetId}</p>
-                                        <p className="font-pixel text-[10px] text-gray-500">{new Date(record.claimedAt).toLocaleDateString()}</p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right">
+                                            <p className="font-pixel text-sm text-green-600">+{record.amount.toFixed(4)} ETH</p>
+                                            <PixelBadge color="bg-green-500">Success</PixelBadge>
+                                        </div>
+                                        {hasRemaining && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    copyShareLink(record.packetId);
+                                                }}
+                                                className="w-8 h-8 border-2 border-black bg-pixel-yellow hover:bg-pixel-darkYellow transition-colors flex items-center justify-center"
+                                                title="Copy share link"
+                                            >
+                                                {copiedPacketId === record.packetId ? (
+                                                    <Check size={16} className="text-black" />
+                                                ) : (
+                                                    <Copy size={16} className="text-black" />
+                                                )}
+                                            </button>
+                                        )}
                                     </div>
-                                </div>
-                                <div className="text-right">
-                                    <p className="font-pixel text-sm text-green-600">+{record.amount.toFixed(4)} ETH</p>
-                                    <PixelBadge color="bg-green-500">Success</PixelBadge>
-                                </div>
-                            </PixelCard>
-                        ))
+                                </PixelCard>
+                            );
+                        })
                     )
                 ) : (
                     history.created.length === 0 ? (
                         <div className="text-center font-pixel text-xs text-gray-400 py-10">No records found</div>
                     ) : (
-                        history.created.map((packet) => (
-                            <PixelCard key={packet.id} className="flex justify-between items-center !p-4">
-                                <div className="flex items-center gap-4">
-                                     <div className="w-10 h-10 bg-gray-200 border-2 border-black flex items-center justify-center">
-                                        <ArrowUpRight size={20} />
+                        history.created.map((packet) => {
+                            const hasRemaining = packet.remainingQuantity > 0 && packet.expiresAt > Date.now();
+                            return (
+                                <PixelCard key={packet.id} className="flex justify-between items-center !p-4">
+                                    <div className="flex items-center gap-4">
+                                         <div className="w-10 h-10 bg-gray-200 border-2 border-black flex items-center justify-center">
+                                            <ArrowUpRight size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="font-pixel text-xs mb-1">{packet.message || 'Red Packet'}</p>
+                                            <p className="font-pixel text-[10px] text-gray-500">
+                                                {packet.remainingQuantity}/{packet.totalQuantity} left · {packet.expiresAt < Date.now() ? 'Expired' : 'Active'}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="font-pixel text-xs mb-1">{packet.message || 'Red Packet'}</p>
-                                        <p className="font-pixel text-[10px] text-gray-500">
-                                            {packet.remainingQuantity}/{packet.totalQuantity} left · {packet.expiresAt < Date.now() ? 'Expired' : 'Active'}
-                                        </p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right">
+                                            <p className="font-pixel text-sm text-red-600">-{packet.totalAmount.toFixed(3)} {packet.tokenSymbol}</p>
+                                            <PixelBadge color={packet.remainingQuantity === 0 ? 'bg-gray-400' : 'bg-blue-500'}>
+                                                {packet.remainingQuantity === 0 ? 'Finished' : 'Active'}
+                                            </PixelBadge>
+                                        </div>
+                                        {hasRemaining && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    copyShareLink(packet.id);
+                                                }}
+                                                className="w-8 h-8 border-2 border-black bg-pixel-yellow hover:bg-pixel-darkYellow transition-colors flex items-center justify-center"
+                                                title="Copy share link"
+                                            >
+                                                {copiedPacketId === packet.id ? (
+                                                    <Check size={16} className="text-black" />
+                                                ) : (
+                                                    <Copy size={16} className="text-black" />
+                                                )}
+                                            </button>
+                                        )}
                                     </div>
-                                </div>
-                                <div className="text-right">
-                                    <p className="font-pixel text-sm text-red-600">-{packet.totalAmount.toFixed(3)} {packet.tokenSymbol}</p>
-                                    <PixelBadge color={packet.remainingQuantity === 0 ? 'bg-gray-400' : 'bg-blue-500'}>
-                                        {packet.remainingQuantity === 0 ? 'Finished' : 'Active'}
-                                    </PixelBadge>
-                                </div>
-                            </PixelCard>
-                        ))
+                                </PixelCard>
+                            );
+                        })
                     )
                 )}
              </div>
