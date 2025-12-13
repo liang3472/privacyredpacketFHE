@@ -16,6 +16,7 @@ export interface RedPacket {
   expiresAt: number;
   message: string;
   isEncrypted: boolean; // Simulating FHE state
+  refunded?: boolean; // Whether the expired packet has been refunded
 }
 
 export interface ClaimRecord {

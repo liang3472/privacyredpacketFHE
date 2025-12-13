@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { RedPacket, ClaimRecord, UserWallet } from '../types';
-import { getUserHistory, getPackets } from '../services/blockchainService';
-import { PixelCard, PixelBadge } from './ui/PixelComponents';
-import { Coins, ArrowUpRight, ArrowDownLeft, Copy, Check } from 'lucide-react';
+import { getUserHistory, getPackets, refundExpiredPacket } from '../services/blockchainService';
+import { PixelCard, PixelBadge, PixelButton } from './ui/PixelComponents';
+import { Coins, ArrowUpRight, ArrowDownLeft, Copy, Check, Wallet } from 'lucide-react';
 
 interface DashboardProps {
     wallet: UserWallet;
@@ -15,6 +15,7 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
     const [activeTab, setActiveTab] = useState<'received' | 'sent'>('received');
     const [allPackets, setAllPackets] = useState<RedPacket[]>([]);
     const [copiedPacketId, setCopiedPacketId] = useState<string | null>(null);
+    const [refundingPacketId, setRefundingPacketId] = useState<string | null>(null);
 
     useEffect(() => {
         if (wallet.isConnected && provider) {
@@ -40,6 +41,44 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
             document.body.removeChild(textArea);
             setCopiedPacketId(packetId);
             setTimeout(() => setCopiedPacketId(null), 2000);
+        }
+    };
+
+    const handleRefund = async (packetId: string) => {
+        if (!provider || !wallet.isConnected) {
+            alert('Please connect your wallet first');
+            return;
+        }
+
+        if (wallet.needsNetworkSwitch) {
+            alert('Please switch to Sepolia testnet first');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to refund the remaining balance from this expired packet?')) {
+            return;
+        }
+
+        setRefundingPacketId(packetId);
+        try {
+            const signer = await provider.getSigner();
+            const result = await refundExpiredPacket(packetId, provider, signer);
+            
+            if (result.success) {
+                alert(`Successfully refunded ${result.amount?.toFixed(4) || '0'} ETH!`);
+                // Refresh the packet list
+                if (provider) {
+                    getUserHistory(wallet.address, provider).then(setHistory);
+                    getPackets(provider).then(setAllPackets).catch(console.error);
+                }
+            } else {
+                alert(`Refund failed: ${result.message || 'Unknown error'}`);
+            }
+        } catch (error: any) {
+            console.error('Refund error:', error);
+            alert(`Refund failed: ${error.message || 'Unknown error'}`);
+        } finally {
+            setRefundingPacketId(null);
         }
     };
 
@@ -149,6 +188,8 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
                     ) : (
                         history.created.map((packet) => {
                             const hasRemaining = packet.remainingQuantity > 0 && packet.expiresAt > Date.now();
+                            const isExpired = packet.expiresAt < Date.now();
+                            const canRefund = isExpired && packet.remainingAmount > 0 && !packet.refunded && packet.creator.toLowerCase() === wallet.address.toLowerCase();
                             return (
                                 <PixelCard key={packet.id} className="flex justify-between items-center !p-4">
                                     <div className="flex items-center gap-4">
@@ -158,33 +199,64 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
                                         <div>
                                             <p className="font-pixel text-xs mb-1">{packet.message || 'Red Packet'}</p>
                                             <p className="font-pixel text-[10px] text-gray-500">
-                                                {packet.remainingQuantity}/{packet.totalQuantity} left · {packet.expiresAt < Date.now() ? 'Expired' : 'Active'}
+                                                {packet.remainingQuantity}/{packet.totalQuantity} left · {isExpired ? 'Expired' : 'Active'}
+                                                {packet.refunded && ' · Refunded'}
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="text-right">
+                                    <div className="flex items-start gap-3">
+                                        <div className="text-right flex-1">
                                             <p className="font-pixel text-sm text-red-600">-{packet.totalAmount.toFixed(3)} {packet.tokenSymbol}</p>
-                                            <PixelBadge color={packet.remainingQuantity === 0 ? 'bg-gray-400' : 'bg-blue-500'}>
-                                                {packet.remainingQuantity === 0 ? 'Finished' : 'Active'}
-                                            </PixelBadge>
+                                            {canRefund && (
+                                                <p className="font-pixel text-[10px] text-orange-600 mb-1.5">
+                                                    {packet.remainingAmount.toFixed(4)} ETH available
+                                                </p>
+                                            )}
                                         </div>
-                                        {hasRemaining && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    copyShareLink(packet.id);
-                                                }}
-                                                className="w-8 h-8 border-2 border-black bg-pixel-yellow hover:bg-pixel-darkYellow transition-colors flex items-center justify-center"
-                                                title="Copy share link"
-                                            >
-                                                {copiedPacketId === packet.id ? (
-                                                    <Check size={16} className="text-black" />
-                                                ) : (
-                                                    <Copy size={16} className="text-black" />
-                                                )}
-                                            </button>
-                                        )}
+                                        <div className="flex flex-col items-end gap-2">
+                                            <PixelBadge color={packet.remainingQuantity === 0 ? 'bg-gray-400' : isExpired ? 'bg-orange-500' : 'bg-blue-500'}>
+                                                {packet.remainingQuantity === 0 ? 'Finished' : isExpired ? 'Expired' : 'Active'}
+                                            </PixelBadge>
+                                            {canRefund && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRefund(packet.id);
+                                                    }}
+                                                    disabled={refundingPacketId === packet.id}
+                                                    className="px-3 py-1.5 border-2 border-black bg-pixel-yellow hover:bg-pixel-darkYellow active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-pixel-sm flex items-center gap-1.5 font-pixel text-[10px] text-black whitespace-nowrap"
+                                                    title="Refund remaining balance"
+                                                >
+                                                    {refundingPacketId === packet.id ? (
+                                                        <>
+                                                            <div className="w-2.5 h-2.5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                                            <span>Processing...</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Wallet size={11} />
+                                                            <span>Refund</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            )}
+                                            {hasRemaining && !canRefund && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        copyShareLink(packet.id);
+                                                    }}
+                                                    className="w-8 h-8 border-2 border-black bg-pixel-yellow hover:bg-pixel-darkYellow transition-colors flex items-center justify-center"
+                                                    title="Copy share link"
+                                                >
+                                                    {copiedPacketId === packet.id ? (
+                                                        <Check size={16} className="text-black" />
+                                                    ) : (
+                                                        <Copy size={16} className="text-black" />
+                                                    )}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </PixelCard>
                             );

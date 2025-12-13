@@ -67,7 +67,7 @@ export const PixelInput: React.FC<PixelInputProps> = ({ label, className = '', .
 };
 
 export const PixelBadge: React.FC<{ children: React.ReactNode; color?: string }> = ({ children, color = 'bg-blue-400' }) => (
-    <span className={`${color} border-2 border-black px-2 py-1 text-[10px] text-white shadow-pixel-sm inline-block`}>
+    <span className={`${color} px-2 py-0.5 text-[10px] text-white inline-block rounded-none`}>
         {children}
     </span>
 );

@@ -207,10 +207,12 @@ export const getPackets = async (provider: ethers.BrowserProvider): Promise<RedP
       }
 
       // Get packet summary to get actual amounts
+      let refunded = false;
       try {
           const summary = await contract.packetSummary(id);
           totalAmount = parseFloat(ethers.formatEther(summary.totalAmount));
           remainingAmount = parseFloat(ethers.formatEther(summary.remainingAmount));
+          refunded = summary.refunded;
       } catch (e) {
           // If packetSummary fails, try to get amount from creation transaction
           console.warn(`Failed to get packet summary for ${id.toString()}:`, e);
@@ -239,6 +241,7 @@ export const getPackets = async (provider: ethers.BrowserProvider): Promise<RedP
         expiresAt: Number(expiresAt) * 1000,
         message,
         isEncrypted: true,
+        refunded,
       };
     }));
 
@@ -633,4 +636,51 @@ export const getUserHistory = async (address: string, provider: ethers.BrowserPr
    );
 
    return { created, claimed };
+};
+
+export const refundExpiredPacket = async (
+  packetId: string,
+  provider: ethers.BrowserProvider,
+  signer: ethers.Signer
+): Promise<{ success: boolean; message?: string; amount?: number }> => {
+  if (!isOnChainConfigured) {
+    return { success: false, message: "Contract address not configured. Please set up the contract address." };
+  }
+
+  if (!provider || !signer) {
+    return { success: false, message: "Provider and signer are required" };
+  }
+
+  try {
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+    
+    // Get balance before refund to calculate the amount received
+    const signerAddress = await signer.getAddress();
+    const balanceBefore = await provider.getBalance(signerAddress);
+    
+    // Convert packetId from string to BigInt for contract call
+    const packetIdBigInt = BigInt(packetId);
+    
+    // Call refundExpired function
+    const tx = await contract.refundExpired(packetIdBigInt);
+    const receipt = await tx.wait();
+    
+    // Get balance after refund to calculate the amount received
+    const balanceAfter = await provider.getBalance(signerAddress);
+    
+    // Calculate the amount received (considering gas fees)
+    const gasUsed: bigint = receipt.gasUsed || 0n;
+    const gasPrice: bigint = receipt.gasPrice || 0n;
+    const gasCost: bigint = gasUsed * gasPrice;
+    const balanceDiff: bigint = balanceAfter - balanceBefore;
+    const amountReceived: bigint = balanceDiff + gasCost; // Add gas cost back since it was deducted
+    
+    // Convert from Wei to Ether
+    const amountInEther = parseFloat(ethers.formatEther(amountReceived));
+    
+    return { success: true, amount: amountInEther, message: 'Refund successful!' };
+  } catch (e: any) {
+    console.error(e);
+    return { success: false, message: e.reason || e.message || "Refund failed" };
+  }
 };

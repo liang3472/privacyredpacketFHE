@@ -271,11 +271,12 @@ export default function App() {
     }
   };
 
-  // Filter packets: exclude finished ones (remainingQuantity === 0)
+  // Filter packets: exclude finished ones (remainingQuantity === 0) and expired ones
   const filteredPackets = packets.filter(p => {
     const matchesSearch = p.message.toLowerCase().includes(searchTerm.toLowerCase()) || p.id.includes(searchTerm);
     const isAvailable = p.remainingQuantity > 0; // Only show packets that still have remaining quantity
-    return matchesSearch && isAvailable;
+    const isNotExpired = p.expiresAt > Date.now(); // Only show packets that haven't expired
+    return matchesSearch && isAvailable && isNotExpired;
   });
 
   const formatTimeLeft = (expiresAt: number) => {
