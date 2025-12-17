@@ -96,6 +96,14 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
     const totalReceived = history.claimed.reduce((acc, curr) => acc + curr.amount, 0);
     const totalSent = history.created.reduce((acc, curr) => acc + curr.totalAmount, 0);
 
+    // Filter out expired and fully claimed packets from sent tab
+    const filteredCreated = history.created.filter((packet) => {
+        const isExpired = packet.expiresAt < Date.now();
+        const isFullyClaimed = packet.remainingQuantity === 0;
+        // Hide packets that are both expired and fully claimed
+        return !(isExpired && isFullyClaimed);
+    });
+
     return (
         <div className="max-w-4xl mx-auto py-8 px-4">
              {/* Stats Cards */}
@@ -132,7 +140,7 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
                     onClick={() => setActiveTab('sent')}
                     className={`px-6 py-3 font-pixel text-xs transition-colors ${activeTab === 'sent' ? 'bg-pixel-red text-white' : 'bg-transparent hover:bg-gray-100'}`}
                 >
-                    Sent ({history.created.length})
+                    Sent ({filteredCreated.length})
                 </button>
              </div>
 
@@ -183,10 +191,10 @@ const Dashboard: React.FC<DashboardProps> = ({ wallet, provider }) => {
                         })
                     )
                 ) : (
-                    history.created.length === 0 ? (
+                    filteredCreated.length === 0 ? (
                         <div className="text-center font-pixel text-xs text-gray-400 py-10">No records found</div>
                     ) : (
-                        history.created.map((packet) => {
+                        filteredCreated.map((packet) => {
                             const hasRemaining = packet.remainingQuantity > 0 && packet.expiresAt > Date.now();
                             const isExpired = packet.expiresAt < Date.now();
                             const canRefund = isExpired && packet.remainingAmount > 0 && !packet.refunded && packet.creator.toLowerCase() === wallet.address.toLowerCase();

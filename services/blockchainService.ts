@@ -190,7 +190,8 @@ export const getPackets = async (provider: ethers.BrowserProvider): Promise<RedP
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     
     const filter = contract.filters.PacketCreated();
-    const events = await contract.queryFilter(filter, -10000); // Last 10k blocks
+    // Query all historical events to ensure we get all packets, including expired but unclaimed ones
+    const events = await contract.queryFilter(filter);
 
     const packets: RedPacket[] = await Promise.all(events.map(async (event: any) => {
       const { id, creator, packetType, totalQuantity, message, expiresAt } = event.args;
@@ -553,6 +554,8 @@ export const getUserHistory = async (address: string, provider: ethers.BrowserPr
    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
    const filter = contract.filters.PacketClaimed(null, address);
    const events = await contract.queryFilter(filter);
+
+   console.log(events)
    
    // Process events to get actual amounts from transaction receipts
    const claimed: ClaimRecord[] = await Promise.all(
